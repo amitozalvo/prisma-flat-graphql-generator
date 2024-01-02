@@ -1,0 +1,31 @@
+{
+  "ts-node": {
+    "files": true
+  },
+  "compilerOptions": {
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "target": "ESNext",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "noImplicitAny": false,
+    "moduleResolution": "node",
+    "sourceMap": true,
+    "outDir": "dist",
+    // "strictNullChecks": false,
+    "lib": [
+      "ESNext"
+    ],
+    "skipLibCheck": true,
+    "typeRoots": [
+      "./src/graphql/generated"
+    ]
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

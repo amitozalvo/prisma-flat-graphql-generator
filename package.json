@@ -1,0 +1,46 @@
+{
+  "name": "prisma-flat-graphql-generator",
+  "description": "Prisma GraphQL Generator (flat, will not introduce performance overhead). Inspired by pal.js",
+  "version": "0.1.11",
+  "bin": {
+    "prisma-flat-graphql-generator": "dist/generator.js"
+  },
+  "module": "index.ts",
+  "scripts": {
+    "build": "npx tsc"
+  },
+  "contributors": [
+    {
+      "name": "Amit Ozalvo"
+    }
+  ],
+  "keywords": [
+    "prisma",
+    "graphql",
+    "gqp",
+    "flat",
+    "generator"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amitozalvo/prisma-flat-graphql-generator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/amitozalvo/prisma-flat-graphql-generator/issues"
+  },
+  "devDependencies": {
+    "@tsconfig/node20": "^20.1.2",
+    "@types/node": "^20.10.3",
+    "@types/pluralize": "^0.0.33",
+    "prisma": "^5.7.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.0",
+    "@prisma/generator-helper": "^5.7.0",
+    "@prisma/internals": "^5.7.0",
+    "pluralize": "^8.0.0",
+    "prettier": "^3.1.1"
+  }
+}

@@ -1,0 +1,58 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator graphql {
+  provider            = "node ./dist/generator.js"
+  excludeModels       = ["Tenant"]
+  excludeInputFields  = ["tenantId", "tenant"]
+  excludeOutputFields = ["tenantId", "tenant"]
+}
+
+model Tenant {
+  id   Int    @id @default(dbgenerated("cuid"))
+  name String
+
+  User User[]
+  Post Post[]
+}
+
+model Serials {
+  test Int @id
+}
+
+model User {
+  tenantId    Int
+  id          Int      @default(dbgenerated("cuid"))
+  createdAt   DateTime @default(now())
+  email       String   @unique
+  name        String?
+  password    String
+  permissions Json     @default("{}")
+  posts       Post[]
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@id([tenantId, id])
+}
+
+model Post {
+  tenantId  Int
+  id        Int      @default(dbgenerated("cuid"))
+  published Boolean  @default(false)
+  title     String
+  author    User?    @relation(fields: [tenantId, authorId], references: [tenantId, id])
+  authorId  Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@id([tenantId, id])
+}
+
+enum Role {
+  ADMIN
+  USER
+}
