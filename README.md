@@ -1,49 +1,61 @@
 ## Overview
 `prisma-flat-graphql-generator` is a prisma generator designed to automatically generate GraphQL schema and resolvers from a Prisma schema. This tool streamlines the process of setting up a GraphQL server by creating a comprehensive structure of resolvers, type definitions, and input types based on your Prisma models.
-The resolvers are created in such a way that any graphql query will result in a single prisma query to avoid N+1 issues.
+
+**Key Features:**
+- ✅ **Zero Dependencies**: Generated code has no external runtime dependencies beyond Prisma Client and GraphQL
+- ✅ **N+1 Prevention**: Built-in query optimization automatically prevents N+1 issues
+- ✅ **Standalone**: No need for @paljs/plugins or graphql-type-json - everything is self-contained
+- ✅ **Type Safe**: Full TypeScript support with generated types
 
 ## Installation
-To install, run
-```npm install prisma-flat-graphql-generator```
+To install, run:
+```bash
+npm install prisma-flat-graphql-generator
+```
 
-You will also need to install:
-`@paljs/plugins` flattens the graphql query into a prisma select format, avoiding N+1 issues.
-`graphql-type-json` used by the generated code.
+**That's it!** No additional dependencies required. The generated code is completely standalone.
 
 In your Prisma schema file, add the following generator clause:
 ```prisma
-generator graphql { 
+generator graphql {
     provider = "prisma-flat-graphql-generator"
+    output   = "./generated/graphql"  // Optional: specify output directory
 }
 ```
 
 ## Usage
-- First, run prisma generate to run the generator: `npx prisma generate`
 
-- Create a file that will hold the schema:
-```typescript
-import { makeExecutableSchema } from "@graphql-tools/schema";
-import { PrismaSelect } from '@paljs/plugins';
-import { applyMiddleware } from 'graphql-middleware';
-import { typeDefs, resolvers } from './Types';
-
-const middleware = async (resolve: any, root: any, args: any, context: any, info: any) => {
-    const result = new PrismaSelect(info).value;
-    if (Object.keys(result.select).length > 0) {
-        args = {
-            ...args,
-            ...result,
-        };
-    }
-    return resolve(root, args, context, info);
-};
-
-const schema = applyMiddleware(makeExecutableSchema({ typeDefs, resolvers }), middleware);
-
-export default schema;
+### 1. Generate GraphQL Schema and Resolvers
+Run Prisma generate:
+```bash
+npx prisma generate
 ```
 
-You can now use the schema with Apollo Server or any other graphql server:
+### 2. Use with Apollo Server
+The generated code works directly with Apollo Server - no middleware or wrapping needed:
+
+```typescript
+import { ApolloServer } from '@apollo/server';
+import { startStandaloneServer } from '@apollo/server/standalone';
+import { PrismaClient } from '@prisma/client';
+import { typeDefs, resolvers } from './generated/graphql';
+
+const prisma = new PrismaClient();
+
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+});
+
+const { url } = await startStandaloneServer(server, {
+  context: async () => ({ prisma }),
+  listen: { port: 4000 },
+});
+
+console.log(`🚀 Server ready at ${url}`);
+```
+
+That's it! The resolvers automatically optimize queries to prevent N+1 issues.
 
 ## Example
 For models `User` and `Post`:

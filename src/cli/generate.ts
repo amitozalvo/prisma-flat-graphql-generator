@@ -39,17 +39,22 @@ function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, usedModel
     const excludeOutputFields = new Set<string>(options?.excludeOutputFields);
 
     const fileContent: string[] = ['scalar Json', 'scalar DateTime', 'type BatchPayload {', 'count: Int!', '}', ''];
-    function addEnumTypesToFileContent(enums: DMMF.SchemaEnum[], usedInputTypes: UsedTypes) {
+    function addEnumTypesToFileContent(enums: any[], usedInputTypes: UsedTypes) {
         enums.forEach((item) => {
             if (!usedInputTypes.has(item.name)) return;
 
             fileContent.push(`enum ${item.name} {`);
-            item.values.forEach((item2) => {
-                if (excludeInputFields.has(item2)) {
-                    return;
-                }
-                fileContent.push(item2);
-            });
+            // Prisma 7 changed from values: string[] to data: { key: string; value: string; }[]
+            const enumValues = 'data' in item ? item.data : item.values;
+            if (Array.isArray(enumValues)) {
+                enumValues.forEach((item2: any) => {
+                    const enumValue = typeof item2 === 'string' ? item2 : item2.key;
+                    if (excludeInputFields.has(enumValue)) {
+                        return;
+                    }
+                    fileContent.push(enumValue);
+                });
+            }
             fileContent.push('}', '');
         });
     }
@@ -72,7 +77,7 @@ function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, usedModel
                         }
 
                         const inputType = getInputType(field);
-                        if (schema.inputObjectTypes.prisma.find(t => t.name === inputType.type)?.fields.some(f => f.isRequired && excludeInputFields.has(f.name))) {
+                        if (schema.inputObjectTypes.prisma?.find(t => t.name === inputType.type)?.fields.some(f => f.isRequired && excludeInputFields.has(f.name))) {
                             return;
                         }
 
@@ -109,9 +114,9 @@ function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, usedModel
     }
 
     if (schema) {
-        const enums = [...schema.enumTypes.prisma];
+        const enums = [...(schema.enumTypes.prisma || [])];
         if (schema.enumTypes.model) enums.push(...schema.enumTypes.model);
-        const inputObjectTypes = [...schema.inputObjectTypes.prisma];
+        const inputObjectTypes = [...(schema.inputObjectTypes.prisma || [])];
         if (schema.inputObjectTypes.model) inputObjectTypes.push(...schema.inputObjectTypes.model);
 
         let remainingInputTypes = usedInputTypes;
@@ -180,25 +185,89 @@ function singularName(modelName: string) {
 }
 
 function getResolvers(model: DMMF.Model, options?: GraphqlGeneratorOptions) {
+    // Generate field metadata for buildPrismaSelect
+    const fieldMetadata = model.fields.map(field => {
+        return `  ${field.name}: { kind: '${field.kind}', type: '${field.type}', isList: ${field.isList} }`;
+    }).join(',\n');
+
+    const fieldsConstant = `const ${model.name.toUpperCase()}_FIELDS = {\n${fieldMetadata}\n};`;
+
+    // Generate buildPrismaSelect utility
+    const buildPrismaSelectUtil = `
+function buildPrismaSelect(info: any, modelFields: any): any {
+  if (!info?.fieldNodes?.[0]?.selectionSet) {
+    return {};
+  }
+
+  const selections = info.fieldNodes[0].selectionSet.selections;
+  const select: any = {};
+
+  for (const selection of selections) {
+    if (selection.kind !== 'Field') continue;
+
+    const fieldName = selection.name.value;
+
+    // Skip GraphQL meta fields
+    if (fieldName.startsWith('__')) continue;
+
+    const fieldInfo = modelFields[fieldName];
+
+    if (!fieldInfo) continue;
+
+    if (fieldInfo.kind === 'object') {
+      // Relation field - add to select with nested selection
+      if (selection.selectionSet) {
+        select[fieldName] = buildNestedSelect(selection.selectionSet);
+      } else {
+        select[fieldName] = true;
+      }
+    } else {
+      // Scalar/enum field - add to select
+      select[fieldName] = true;
+    }
+  }
+
+  return Object.keys(select).length > 0 ? { select } : {};
+}
+
+function buildNestedSelect(selectionSet: any): any {
+  const select: any = {};
+
+  for (const selection of selectionSet.selections) {
+    if (selection.kind !== 'Field') continue;
+    const fieldName = selection.name.value;
+
+    // Skip GraphQL meta fields
+    if (fieldName.startsWith('__')) continue;
+
+    select[fieldName] = true;
+  }
+
+  return Object.keys(select).length > 0 ? { select } : true;
+}`;
+
+    // Generate resolvers with info parameter and buildPrismaSelect
     const resolvers = (options?.queries ?? allQueries).map(query => {
         switch (query) {
             case "findFirst":
-                return `${singularName(model.name)}: (_parent: any, args: any, context: any) => {
-                    return context.prisma.${model.name}.findFirst(args)
+                return `${singularName(model.name)}: (_parent: any, args: any, context: any, info: any) => {
+                    const prismaSelect = buildPrismaSelect(info, ${model.name.toUpperCase()}_FIELDS);
+                    return context.prisma.${model.name}.findFirst({ ...args, ...prismaSelect })
                 }`
 
             case "findMany":
-                return `${pluralName(model.name)}: (_parent: any, args: any, context: any) => {
-                        return context.prisma.${model.name}.findMany(args)
-                    }`
+                return `${pluralName(model.name)}: (_parent: any, args: any, context: any, info: any) => {
+                    const prismaSelect = buildPrismaSelect(info, ${model.name.toUpperCase()}_FIELDS);
+                    return context.prisma.${model.name}.findMany({ ...args, ...prismaSelect })
+                }`
             default:
                 throw new Error("Unknown query: " + query);
         }
     });
 
-    return `const resolvers = {
+    return `${fieldsConstant}\n\n${buildPrismaSelectUtil}\n\nconst resolvers = {
                 Query: {
-                    ${resolvers}
+                    ${resolvers.join(',\n')}
                 }
             }\n
             export default resolvers;`;
@@ -335,15 +404,46 @@ function formatGraphql(content: string) {
 
 function generateIndexFile(models: SingleModelOutput[]) {
     const imports = models.flatMap(m => [`import ${m.modelName}_resolvers from './${m.modelName}/${RESOLVERS_FILE_NAME}';`, `import ${m.modelName}_typeDefs from './${m.modelName}/${TYPE_DEFS_FILE_NAME}';`]).join("\n");
+
+    // Inline Json scalar implementation (no external dependencies)
+    const jsonScalarResolver = `const JsonScalar = {
+  name: 'Json',
+  description: 'The \`Json\` scalar type represents JSON values as specified by ECMA-404',
+  serialize: (value: any) => value,
+  parseValue: (value: any) => value,
+  parseLiteral: (ast: any) => {
+    switch (ast.kind) {
+      case 'StringValue':
+      case 'BooleanValue':
+        return ast.value;
+      case 'IntValue':
+      case 'FloatValue':
+        return parseFloat(ast.value);
+      case 'ObjectValue':
+        return ast.fields.reduce((acc: any, field: any) => {
+          acc[field.name.value] = JsonScalar.parseLiteral(field.value);
+          return acc;
+        }, {});
+      case 'ListValue':
+        return ast.values.map((v: any) => JsonScalar.parseLiteral(v));
+      case 'NullValue':
+        return null;
+      default:
+        return null;
+    }
+  }
+};`;
+
     const consts = [
         `const typeDefs = [inputTypes, ${models.map(m => `${m.modelName}_typeDefs`).join(", ")}]`,
-        `const resolvers = [{ Json: GraphQLJSON }, ${models.map(m => `${m.modelName}_resolvers`).join(", ")}]`
+        `const resolvers = [{ Json: JsonScalar }, ${models.map(m => `${m.modelName}_resolvers`).join(", ")}]`
     ].join("\n")
 
     return [
-        `import GraphQLJSON from 'graphql-type-json'; // npm install graphql-type-json\n`,
         `import inputTypes from './${INPUT_TYPES_FILE_NAME}';\n\n`,
         imports,
+        "\n\n",
+        jsonScalarResolver,
         "\n\n",
         consts,
         "\n\nexport { typeDefs, resolvers }"

@@ -1,21 +1,14 @@
 {
+  "extends": "@tsconfig/node22/tsconfig.json",
   "ts-node": {
     "files": true
   },
   "compilerOptions": {
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "target": "ESNext",
-    "module": "commonjs",
-    "esModuleInterop": true,
-    "noImplicitAny": false,
-    "moduleResolution": "node",
-    "sourceMap": true,
     "outDir": "dist",
-    // "strictNullChecks": false,
-    "lib": [
-      "ESNext"
-    ],
+    "sourceMap": true,
+    "noImplicitAny": false,
     "skipLibCheck": true,
     "typeRoots": [
       "./src/graphql/generated"

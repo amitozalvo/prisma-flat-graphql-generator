@@ -1,0 +1,49 @@
+datasource db {
+  provider = "sqlite"
+  // Prisma 7: URL passed via PrismaClient constructor or environment
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+generator graphql {
+  provider            = "node /Users/amitozalvo/Documents/code/simbly/prisma-graphql-generator/dist/generator.js"
+  output              = "../generated/graphql"
+  excludeModels       = ["Internal"]
+  excludeInputFields  = ["password"]
+  excludeOutputFields = ["password"]
+}
+
+// Internal model (excluded from GraphQL)
+model Internal {
+  id   Int    @id @default(autoincrement())
+  data String
+}
+
+// Public models
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String?
+  password  String   // Excluded from GraphQL output
+  createdAt DateTime @default(now())
+  posts     Post[]
+}
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String?
+  published Boolean  @default(false)
+  authorId  Int
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  ADMIN
+  USER
+}
