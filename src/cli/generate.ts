@@ -11,19 +11,20 @@ export default async function generate(dmmf: DMMF.Document, options?: GraphqlGen
     const models = !!options?.models ? dmmf.datamodel.models.filter(m => options.models!.includes(m.name)) : dmmf.datamodel.models;
     const usedInputTypes = new Set<string>();
 
-    const generatedModels = models.map(model => {
+    const generatedModelsPromises = models.map(model => {
         if (!!options?.excludeModels && options.excludeModels.includes(model.name)) {
             // Skip excluded models
             return null;
         }
 
         return generateModelResolversAndTypeDef(model, dmmf, usedInputTypes, options);
-    }).filter(o => !!o) as SingleModelOutput[];
+    }).filter(o => !!o) as Promise<SingleModelOutput>[];
 
+    const generatedModels = await Promise.all(generatedModelsPromises);
     const usedModels = generatedModels.map(m => m.modelName);
 
     const formattedModels = await formatModelsOutput(generatedModels);
-    const inputTypes = await formatTypescript(getInputTypes(dmmf.schema, usedInputTypes, usedModels, options));
+    const inputTypes = await formatTypescript(await getInputTypes(dmmf.schema, usedInputTypes, usedModels, options));
 
     const indexFile = generateIndexFile(generatedModels);
 
@@ -34,15 +35,19 @@ export default async function generate(dmmf: DMMF.Document, options?: GraphqlGen
     }
 }
 
-function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, usedModels: string[], options?: GraphqlGeneratorOptions) {
+async function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, usedModels: string[], options?: GraphqlGeneratorOptions) {
     const excludeInputFields = new Set<string>(options?.excludeInputFields);
     const excludeOutputFields = new Set<string>(options?.excludeOutputFields);
 
     const fileContent: string[] = ['scalar Json', 'scalar DateTime', 'type BatchPayload {', 'count: Int!', '}', ''];
+    const writtenTypes = new Set<string>(); // Track types already written to fileContent
+
     function addEnumTypesToFileContent(enums: any[], usedInputTypes: UsedTypes) {
         enums.forEach((item) => {
             if (!usedInputTypes.has(item.name)) return;
+            if (writtenTypes.has(item.name)) return; // Skip if already written
 
+            writtenTypes.add(item.name);
             fileContent.push(`enum ${item.name} {`);
             // Prisma 7 changed from values: string[] to data: { key: string; value: string; }[]
             const enumValues = 'data' in item ? item.data : item.values;
@@ -65,6 +70,9 @@ function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, usedModel
             if (input.fields.length > 0) {
                 if (!localUsedInputTypes.has(input.name)) {
                     return;
+                }
+                if (writtenTypes.has(input.name)) {
+                    return; // Skip if already written to fileContent
                 }
 
                 let actualFieldsCount = 0;
@@ -106,6 +114,7 @@ function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, usedModel
                     fileContent.pop();
                 } else {
                     fileContent.push('}', '');
+                    writtenTypes.add(input.name); // Mark as written after successfully adding
                 }
             }
         });
@@ -141,7 +150,9 @@ function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, usedModel
             .filter((type) => type.name.includes('Aggregate') || type.name.endsWith('CountOutputType'))
             .forEach((type) => {
                 if (!usedModels.some(m => type.name.startsWith(m))) return;
+                if (writtenTypes.has(type.name)) return; // Skip if already written
 
+                writtenTypes.add(type.name);
                 fileContent.push(`type ${type.name} {`, '');
                 type.fields
                     .filter((field) => !excludeOutputFields.has(field.name))
@@ -155,14 +166,14 @@ function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, usedModel
             });
     }
 
-    const content = formatGraphql(fileContent.join('\n'));
+    const content = await formatGraphql(fileContent.join('\n'));
 
     return `import { gql } from 'graphql-tag';\n
     export default gql\`\n${content}\n\`;\n`
 }
 
-function generateModelResolversAndTypeDef(model: DMMF.Model, dmmf: DMMF.Document, usedInputTypes: UsedTypes, options?: GraphqlGeneratorOptions): SingleModelOutput {
-    const typeDef = getTypeDef(model, dmmf.schema, usedInputTypes, options);
+async function generateModelResolversAndTypeDef(model: DMMF.Model, dmmf: DMMF.Document, usedInputTypes: UsedTypes, options?: GraphqlGeneratorOptions): Promise<SingleModelOutput> {
+    const typeDef = await getTypeDef(model, dmmf.schema, usedInputTypes, options);
     const resolvers = getResolvers(model, options);
 
     return {
@@ -240,7 +251,13 @@ function buildNestedSelect(selectionSet: any): any {
     // Skip GraphQL meta fields
     if (fieldName.startsWith('__')) continue;
 
-    select[fieldName] = true;
+    // If this field has nested selections, it's a relation - recurse
+    if (selection.selectionSet) {
+      select[fieldName] = buildNestedSelect(selection.selectionSet);
+    } else {
+      // Scalar field
+      select[fieldName] = true;
+    }
   }
 
   return Object.keys(select).length > 0 ? { select } : true;
@@ -273,7 +290,7 @@ function buildNestedSelect(selectionSet: any): any {
             export default resolvers;`;
 }
 
-function getTypeDef(model: DMMF.Model, schema: DMMF.Schema, usedInputTypes: UsedTypes, options?: GraphqlGeneratorOptions) {
+async function getTypeDef(model: DMMF.Model, schema: DMMF.Schema, usedInputTypes: UsedTypes, options?: GraphqlGeneratorOptions) {
     const type = getType(schema.outputObjectTypes.model.find(m => m.name === model.name)!, options?.excludeOutputFields ?? [], usedInputTypes);
 
     const queriesTypeDefs = (options?.queries ?? allQueries).map(query => {
@@ -289,10 +306,12 @@ function getTypeDef(model: DMMF.Model, schema: DMMF.Schema, usedInputTypes: Used
         }
     });
 
+    const formattedSchema = await formatGraphql(`${type}\n
+        type Query { ${queriesTypeDefs.join("\n")} }`);
+
     return `import gql from 'graphql-tag';\n
     export default gql\`
-        ${formatGraphql(`${type}\n
-        type Query { ${queriesTypeDefs.join("\n")} }`)}
+        ${formattedSchema}
     \``
 }
 
@@ -390,16 +409,13 @@ function formatTypescript(content: string) {
         parser: "typescript"
     });
 }
-function formatGraphql(content: string) {
-    let res = content;
-    format(content, {
+async function formatGraphql(content: string) {
+    return await format(content, {
         singleQuote: true,
         semi: false,
         trailingComma: 'all',
         parser: "graphql"
-    }).then(formatted => res = formatted);
-
-    return res;
+    });
 }
 
 function generateIndexFile(models: SingleModelOutput[]) {
