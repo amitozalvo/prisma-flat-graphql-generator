@@ -90,6 +90,29 @@ You can customize the generator output with the following configurations:
 - `excludeOutputFields`  Exclude fields from GraphQL outputs.
 - `output`               Set a custom output directory for the generator (Defaults to the same directory as schema.prisma file).
 
+## Testing
+
+This library has comprehensive test coverage to ensure reliability:
+
+```bash
+npm test              # Run all tests
+npm run test:watch    # Watch mode for development
+npm run test:coverage # Generate coverage report
+```
+
+**Test Suite:**
+- 49 passing tests across unit and integration tests
+- Tests cover: generation, exclusions, enums, bug fixes, and edge cases
+- Recent bug fixes verified with dedicated test coverage
+
+**Recent Improvements (v0.1.13):**
+- ✅ Fixed duplicate type definitions in generated GraphQL schemas
+- ✅ Fixed GraphQL formatting to ensure consistent output
+- ✅ Fixed nested relation handling to support deep query optimization
+- ✅ Added 19 new tests specifically for bug fixes
+
+See [CHANGELOG.md](./CHANGELOG.md) for detailed release notes.
+
 ## Acknowledgments
 This library was inspired by Ahmed Elywa's work on paljs.
 
@@ -98,3 +121,5 @@ Currently, this generator does not support mutations such as create, update, or 
 
 ## Contributing
 Contributions are welcome to extend the functionality, including support for mutations and more.
+
+See [CLAUDE.md](./CLAUDE.md) for development guidelines and architecture details.
