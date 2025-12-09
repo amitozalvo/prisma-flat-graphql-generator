@@ -146,24 +146,27 @@ async function getInputTypes(schema: DMMF.Schema, usedInputTypes: UsedTypes, use
 
         addEnumTypesToFileContent(enums, usedInputTypes);
 
-        schema?.outputObjectTypes.prisma
-            .filter((type) => type.name.includes('Aggregate') || type.name.endsWith('CountOutputType'))
-            .forEach((type) => {
-                if (!usedModels.some(m => type.name.startsWith(m))) return;
-                if (writtenTypes.has(type.name)) return; // Skip if already written
-
-                writtenTypes.add(type.name);
-                fileContent.push(`type ${type.name} {`, '');
-                type.fields
-                    .filter((field) => !excludeOutputFields.has(field.name))
-                    .forEach((field) => {
-                        fileContent.push(
-                            `${field.name}: ${field.outputType.isList ? `[${field.outputType.type}!]` : field.outputType.type}${!field.isNullable ? '!' : ''
-                            }`,
-                        );
-                    });
-                fileContent.push('}', '');
-            });
+        // NOTE: Aggregate and Count output types are commented out since we only support
+        // findFirst/findMany queries. When aggregation support is added, uncomment this:
+        //
+        // schema?.outputObjectTypes.prisma
+        //     .filter((type) => type.name.includes('Aggregate') || type.name.endsWith('CountOutputType'))
+        //     .forEach((type) => {
+        //         if (!usedModels.some(m => type.name.startsWith(m))) return;
+        //         if (writtenTypes.has(type.name)) return; // Skip if already written
+        //
+        //         writtenTypes.add(type.name);
+        //         fileContent.push(`type ${type.name} {`, '');
+        //         type.fields
+        //             .filter((field) => !excludeOutputFields.has(field.name))
+        //             .forEach((field) => {
+        //                 fileContent.push(
+        //                     `${field.name}: ${field.outputType.isList ? `[${field.outputType.type}!]` : field.outputType.type}${!field.isNullable ? '!' : ''
+        //                     }`,
+        //                 );
+        //             });
+        //         fileContent.push('}', '');
+        //     });
     }
 
     const content = await formatGraphql(fileContent.join('\n'));
@@ -366,6 +369,11 @@ const getInputType = (field: DMMF.SchemaArg) => {
 function getType(modelOutputType: DMMF.OutputType, excludeFields: string[], usedInputTypes: UsedTypes) {
     const fields = modelOutputType.fields.map((field) => {
         if (excludeFields.includes(field.name)) {
+            return null;
+        }
+
+        // Skip aggregate fields (_count, etc.) since we only support findFirst/findMany
+        if (field.name.startsWith('_')) {
             return null;
         }
 

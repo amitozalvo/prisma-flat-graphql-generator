@@ -44,14 +44,15 @@ describe('Bug Fixes', () => {
       expect(count).toBe(1);
     });
 
-    it('should not generate duplicate aggregate type definitions', async () => {
+    it('should not generate aggregate type definitions (unsupported)', async () => {
       const output = await generate(dmmf);
 
-      // Check UserCountAggregateOutputType
-      const matches = output.inputTypes.match(/type UserCountAggregateOutputType \{/g);
-      const count = matches ? matches.length : 0;
-
-      expect(count).toBe(1);
+      // Aggregate types should NOT be generated since we only support findFirst/findMany
+      expect(output.inputTypes).not.toContain('CountAggregateOutputType');
+      expect(output.inputTypes).not.toContain('AvgAggregateOutputType');
+      expect(output.inputTypes).not.toContain('SumAggregateOutputType');
+      expect(output.inputTypes).not.toContain('MinAggregateOutputType');
+      expect(output.inputTypes).not.toContain('MaxAggregateOutputType');
     });
 
     it('should handle circular references without duplicates', async () => {
@@ -197,6 +198,31 @@ describe('Bug Fixes', () => {
 
       // Should recursively call buildNestedSelect
       expect(functionBody).toContain('buildNestedSelect(selection.selectionSet)');
+    });
+  });
+
+  describe('Aggregate Field Exclusion', () => {
+    it('should not include _count fields in type definitions', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // _count should not appear in the type definition
+      expect(userModel!.typeDef).not.toContain('_count');
+      expect(userModel!.typeDef).not.toContain('CountOutputType');
+    });
+
+    it('should not include any aggregate fields starting with underscore', async () => {
+      const output = await generate(dmmf);
+
+      output.models.forEach(model => {
+        // No fields starting with _ should be in type definitions
+        const lines = model.typeDef.split('\n');
+        const fieldLines = lines.filter(l => l.trim().match(/^\w+:/));
+
+        fieldLines.forEach(line => {
+          expect(line.trim()).not.toMatch(/^_\w+:/);
+        });
+      });
     });
   });
 
