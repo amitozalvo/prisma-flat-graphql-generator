@@ -101,7 +101,7 @@ npm run test:coverage # Generate coverage report
 ```
 
 **Test Suite:**
-- 49 passing tests across unit and integration tests
+- 51 passing tests across unit and integration tests
 - Tests cover: generation, exclusions, enums, bug fixes, and edge cases
 - Recent bug fixes verified with dedicated test coverage
 
@@ -109,7 +109,8 @@ npm run test:coverage # Generate coverage report
 - ✅ Fixed duplicate type definitions in generated GraphQL schemas
 - ✅ Fixed GraphQL formatting to ensure consistent output
 - ✅ Fixed nested relation handling to support deep query optimization
-- ✅ Added 19 new tests specifically for bug fixes
+- ✅ Fixed _count and aggregate fields causing introspection failures
+- ✅ Added 21 new tests specifically for bug fixes
 
 See [CHANGELOG.md](./CHANGELOG.md) for detailed release notes.
 

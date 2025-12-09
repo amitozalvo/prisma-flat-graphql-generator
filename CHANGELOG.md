@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### Bug #4: GraphQL Introspection Failures from Unsupported Aggregate Fields
+- **Issue**: `_count` fields and aggregate output types were generated in GraphQL schemas without corresponding resolvers, causing introspection failures
+- **Root Cause**: Generator included all fields from Prisma DMMF including aggregate fields, even though only `findFirst` and `findMany` queries are supported
+- **Fix**:
+  - Filter out fields starting with `_` (aggregate fields like `_count`) in `getType()` function
+  - Disabled generation of aggregate output types (CountAggregateOutputType, AvgAggregateOutputType, etc.)
+  - Added comment noting aggregates will be re-enabled when support is added
+- **Impact**: Generated GraphQL schemas now pass introspection and work correctly with GraphQL clients
+- **Files Changed**: `src/cli/generate.ts`
+- **Tests Added**: 2 new tests in `tests/unit/bug-fixes.test.ts` verifying aggregate fields are excluded
+- **Note**: This is temporary until full aggregation support is implemented in a future release
+
 #### Bug #1: Duplicate Type Definitions
 - **Issue**: GraphQL input types (e.g., `UserWhereInput`, `PostWhereInput`) were generated multiple times in `inputTypes.ts`, causing invalid GraphQL schemas
 - **Root Cause**: The iterative dependency resolution loop called `addInputObjectTypesToFileContent()` multiple times without tracking which types were already written
