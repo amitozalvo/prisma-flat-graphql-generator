@@ -221,7 +221,7 @@ describe('GraphQL Generator Integration Tests', () => {
       expect(userModel!.resolvers).toContain('function buildNestedSelect');
       expect(userModel!.resolvers).toContain("fieldInfo.kind === 'object'");
       expect(userModel!.resolvers).toContain('{ select }');
-      expect(userModel!.resolvers).toContain('buildNestedSelect(selection.selectionSet)');
+      expect(userModel!.resolvers).toContain('buildNestedSelect(selection.selectionSet, fragments)');
     });
 
     it('should include info parameter in resolver signatures', async () => {

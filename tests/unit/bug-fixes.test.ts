@@ -141,8 +141,8 @@ describe('Bug Fixes', () => {
       const output = await generate(dmmf);
       const userModel = output.models.find(m => m.modelName === 'User');
 
-      // Should contain recursive call to buildNestedSelect
-      expect(userModel!.resolvers).toContain('buildNestedSelect(selection.selectionSet)');
+      // Should contain recursive call to buildNestedSelect with fragments
+      expect(userModel!.resolvers).toContain('buildNestedSelect(selection.selectionSet, fragments)');
     });
 
     it('should check for selectionSet to detect nested relations', async () => {
@@ -151,7 +151,7 @@ describe('Bug Fixes', () => {
 
       // Should check if selection has selectionSet
       expect(userModel!.resolvers).toContain('if (selection.selectionSet)');
-      expect(userModel!.resolvers).toContain('select[fieldName] = buildNestedSelect(selection.selectionSet)');
+      expect(userModel!.resolvers).toContain('select[fieldName] = buildNestedSelect(selection.selectionSet, fragments)');
     });
 
     it('should handle scalar fields differently from relations', async () => {
@@ -196,8 +196,8 @@ describe('Bug Fixes', () => {
       // Should check for selection.selectionSet (nested relations)
       expect(functionBody).toContain('selection.selectionSet');
 
-      // Should recursively call buildNestedSelect
-      expect(functionBody).toContain('buildNestedSelect(selection.selectionSet)');
+      // Should recursively call buildNestedSelect with fragments
+      expect(functionBody).toContain('buildNestedSelect(selection.selectionSet, fragments)');
     });
   });
 
@@ -222,6 +222,195 @@ describe('Bug Fixes', () => {
         fieldLines.forEach(line => {
           expect(line.trim()).not.toMatch(/^_\w+:/);
         });
+      });
+    });
+  });
+
+  describe('Count Query Support', () => {
+    it('should generate count query in typeDefs', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.typeDef).toContain('usersCount');
+      expect(userModel!.typeDef).toContain('Int!');
+    });
+
+    it('should include where argument for count query', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.typeDef).toContain('usersCount(where: UserWhereInput): Int!');
+    });
+
+    it('should not include orderBy, take, skip arguments for count', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Extract the usersCount query definition
+      const countQueryMatch = userModel!.typeDef.match(/usersCount\([^)]*\)/);
+      expect(countQueryMatch).toBeDefined();
+
+      const countQuery = countQueryMatch![0];
+      expect(countQuery).not.toContain('orderBy');
+      expect(countQuery).not.toContain('take');
+      expect(countQuery).not.toContain('skip');
+      expect(countQuery).not.toContain('cursor');
+    });
+
+    it('should generate count resolver', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.resolvers).toContain('usersCount:');
+      expect(userModel!.resolvers).toContain('context.prisma.User.count');
+      expect(userModel!.resolvers).toContain('where: args.where');
+    });
+
+    it('should not use buildPrismaSelect for count resolver', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Extract the usersCount resolver
+      const countResolverMatch = userModel!.resolvers.match(/usersCount:[\s\S]*?(?=\n\s{4}\w+:|$)/);
+      expect(countResolverMatch).toBeDefined();
+
+      const countResolver = countResolverMatch![0];
+      expect(countResolver).not.toContain('buildPrismaSelect');
+      expect(countResolver).not.toContain('prismaSelect');
+    });
+
+    it('should respect queries option to exclude count', async () => {
+      const options: GraphqlGeneratorOptions = {
+        queries: ['findFirst', 'findMany'],
+      };
+
+      const output = await generate(dmmf, options);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.typeDef).not.toContain('usersCount');
+      expect(userModel!.resolvers).not.toContain('usersCount:');
+    });
+
+    it('should respect queries option to only include count', async () => {
+      const options: GraphqlGeneratorOptions = {
+        queries: ['count'],
+      };
+
+      const output = await generate(dmmf, options);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.typeDef).toContain('usersCount');
+      expect(userModel!.typeDef).not.toContain('user('); // findFirst
+      expect(userModel!.typeDef).not.toContain('users('); // findMany
+    });
+
+    it('should generate count for all models', async () => {
+      const output = await generate(dmmf);
+
+      output.models.forEach(model => {
+        const pluralModelName = model.modelName.toLowerCase() + 's';
+        expect(model.typeDef).toContain(`Count`);
+        expect(model.resolvers).toContain(`Count:`);
+      });
+    });
+  });
+
+  describe('Fragment Support', () => {
+    it('should handle FragmentSpread in buildPrismaSelect', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Should check for FragmentSpread selection kind
+      expect(userModel!.resolvers).toContain("selection.kind === 'FragmentSpread'");
+      expect(userModel!.resolvers).toContain('const fragmentName = selection.name.value');
+      expect(userModel!.resolvers).toContain('const fragment = fragments[fragmentName]');
+    });
+
+    it('should handle InlineFragment in buildPrismaSelect', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Should check for InlineFragment selection kind
+      expect(userModel!.resolvers).toContain("selection.kind === 'InlineFragment'");
+      expect(userModel!.resolvers).toContain('selection.selectionSet?.selections');
+    });
+
+    it('should pass fragments context to buildNestedSelect', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // buildPrismaSelect should get fragments from info
+      expect(userModel!.resolvers).toContain('const fragments = info.fragments || {}');
+
+      // Should pass fragments to buildNestedSelect
+      expect(userModel!.resolvers).toContain('buildNestedSelect(selection.selectionSet, fragments)');
+    });
+
+    it('should handle fragments in buildNestedSelect', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Extract buildNestedSelect function
+      const functionMatch = userModel!.resolvers.match(/function buildNestedSelect\([\s\S]*?\n  return/);
+      expect(functionMatch).toBeDefined();
+
+      const functionBody = functionMatch![0];
+
+      // Should have fragments parameter with default
+      expect(functionBody).toContain('fragments: any = {}');
+
+      // Should handle FragmentSpread
+      expect(functionBody).toContain("selection.kind === 'FragmentSpread'");
+
+      // Should handle InlineFragment
+      expect(functionBody).toContain("selection.kind === 'InlineFragment'");
+
+      // Should recursively pass fragments
+      expect(functionBody).toContain('buildNestedSelect(selection.selectionSet, fragments)');
+    });
+
+    it('should use processSelections helper in buildPrismaSelect', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Should have processSelections helper function
+      expect(userModel!.resolvers).toContain('function processSelections(selections: any[], fragments: any)');
+
+      // Should call processSelections
+      expect(userModel!.resolvers).toContain('processSelections(selections, fragments)');
+    });
+
+    it('should use processSelections helper in buildNestedSelect', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Extract buildNestedSelect function
+      const functionMatch = userModel!.resolvers.match(/function buildNestedSelect\([\s\S]*?\n  return/);
+      expect(functionMatch).toBeDefined();
+
+      const functionBody = functionMatch![0];
+
+      // Should have processSelections helper
+      expect(functionBody).toContain('function processSelections(selections: any[], fragments: any)');
+
+      // Should call processSelections with selectionSet.selections
+      expect(functionBody).toContain('processSelections(selectionSet.selections, fragments)');
+    });
+
+    it('should handle fragments recursively through nested relations', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Both buildPrismaSelect and buildNestedSelect should support fragments
+      expect(userModel!.resolvers).toContain('const fragments = info.fragments || {}');
+
+      // Fragments should be passed through all levels of nesting
+      const nestedSelectMatches = userModel!.resolvers.match(/buildNestedSelect\([^)]+\)/g);
+      expect(nestedSelectMatches).toBeDefined();
+
+      // All calls to buildNestedSelect should include fragments parameter
+      nestedSelectMatches!.forEach(call => {
+        expect(call).toContain('fragments');
       });
     });
   });
