@@ -206,7 +206,7 @@ function getResolvers(model: DMMF.Model, options?: GraphqlGeneratorOptions) {
 
     const fieldsConstant = `const ${model.name.toUpperCase()}_FIELDS = {\n${fieldMetadata}\n};`;
 
-    // Generate buildPrismaSelect utility
+    // Generate buildPrismaSelect utility with fragment support
     const buildPrismaSelectUtil = `
 function buildPrismaSelect(info: any, modelFields: any): any {
   if (!info?.fieldNodes?.[0]?.selectionSet) {
@@ -214,54 +214,99 @@ function buildPrismaSelect(info: any, modelFields: any): any {
   }
 
   const selections = info.fieldNodes[0].selectionSet.selections;
+  const fragments = info.fragments || {};
   const select: any = {};
 
-  for (const selection of selections) {
-    if (selection.kind !== 'Field') continue;
+  function processSelections(selections: any[], fragments: any) {
+    for (const selection of selections) {
+      // Handle fragment spreads (...FragmentName)
+      if (selection.kind === 'FragmentSpread') {
+        const fragmentName = selection.name.value;
+        const fragment = fragments[fragmentName];
+        if (fragment?.selectionSet?.selections) {
+          processSelections(fragment.selectionSet.selections, fragments);
+        }
+        continue;
+      }
 
-    const fieldName = selection.name.value;
+      // Handle inline fragments (... on TypeName)
+      if (selection.kind === 'InlineFragment') {
+        if (selection.selectionSet?.selections) {
+          processSelections(selection.selectionSet.selections, fragments);
+        }
+        continue;
+      }
 
-    // Skip GraphQL meta fields
-    if (fieldName.startsWith('__')) continue;
+      if (selection.kind !== 'Field') continue;
 
-    const fieldInfo = modelFields[fieldName];
+      const fieldName = selection.name.value;
 
-    if (!fieldInfo) continue;
+      // Skip GraphQL meta fields
+      if (fieldName.startsWith('__')) continue;
 
-    if (fieldInfo.kind === 'object') {
-      // Relation field - add to select with nested selection
-      if (selection.selectionSet) {
-        select[fieldName] = buildNestedSelect(selection.selectionSet);
+      const fieldInfo = modelFields[fieldName];
+
+      if (!fieldInfo) continue;
+
+      if (fieldInfo.kind === 'object') {
+        // Relation field - add to select with nested selection
+        if (selection.selectionSet) {
+          select[fieldName] = buildNestedSelect(selection.selectionSet, fragments);
+        } else {
+          select[fieldName] = true;
+        }
       } else {
+        // Scalar/enum field - add to select
         select[fieldName] = true;
       }
-    } else {
-      // Scalar/enum field - add to select
-      select[fieldName] = true;
     }
   }
+
+  processSelections(selections, fragments);
 
   return Object.keys(select).length > 0 ? { select } : {};
 }
 
-function buildNestedSelect(selectionSet: any): any {
+function buildNestedSelect(selectionSet: any, fragments: any = {}): any {
   const select: any = {};
 
-  for (const selection of selectionSet.selections) {
-    if (selection.kind !== 'Field') continue;
-    const fieldName = selection.name.value;
+  function processSelections(selections: any[], fragments: any) {
+    for (const selection of selections) {
+      // Handle fragment spreads
+      if (selection.kind === 'FragmentSpread') {
+        const fragmentName = selection.name.value;
+        const fragment = fragments[fragmentName];
+        if (fragment?.selectionSet?.selections) {
+          processSelections(fragment.selectionSet.selections, fragments);
+        }
+        continue;
+      }
 
-    // Skip GraphQL meta fields
-    if (fieldName.startsWith('__')) continue;
+      // Handle inline fragments
+      if (selection.kind === 'InlineFragment') {
+        if (selection.selectionSet?.selections) {
+          processSelections(selection.selectionSet.selections, fragments);
+        }
+        continue;
+      }
 
-    // If this field has nested selections, it's a relation - recurse
-    if (selection.selectionSet) {
-      select[fieldName] = buildNestedSelect(selection.selectionSet);
-    } else {
-      // Scalar field
-      select[fieldName] = true;
+      if (selection.kind !== 'Field') continue;
+      const fieldName = selection.name.value;
+
+      // Skip GraphQL meta fields
+      if (fieldName.startsWith('__')) continue;
+
+      // If this field has nested selections, it's a relation - recurse
+      if (selection.selectionSet) {
+        select[fieldName] = buildNestedSelect(selection.selectionSet, fragments);
+      } else {
+        // Scalar field
+        select[fieldName] = true;
+      }
     }
   }
+
+  processSelections(selectionSet.selections, fragments);
 
   return Object.keys(select).length > 0 ? { select } : true;
 }`;
