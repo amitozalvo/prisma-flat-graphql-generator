@@ -226,6 +226,95 @@ describe('Bug Fixes', () => {
     });
   });
 
+  describe('Count Query Support', () => {
+    it('should generate count query in typeDefs', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.typeDef).toContain('usersCount');
+      expect(userModel!.typeDef).toContain('Int!');
+    });
+
+    it('should include where argument for count query', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.typeDef).toContain('usersCount(where: UserWhereInput): Int!');
+    });
+
+    it('should not include orderBy, take, skip arguments for count', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Extract the usersCount query definition
+      const countQueryMatch = userModel!.typeDef.match(/usersCount\([^)]*\)/);
+      expect(countQueryMatch).toBeDefined();
+
+      const countQuery = countQueryMatch![0];
+      expect(countQuery).not.toContain('orderBy');
+      expect(countQuery).not.toContain('take');
+      expect(countQuery).not.toContain('skip');
+      expect(countQuery).not.toContain('cursor');
+    });
+
+    it('should generate count resolver', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.resolvers).toContain('usersCount:');
+      expect(userModel!.resolvers).toContain('context.prisma.User.count');
+      expect(userModel!.resolvers).toContain('where: args.where');
+    });
+
+    it('should not use buildPrismaSelect for count resolver', async () => {
+      const output = await generate(dmmf);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      // Extract the usersCount resolver
+      const countResolverMatch = userModel!.resolvers.match(/usersCount:[\s\S]*?(?=\n\s{4}\w+:|$)/);
+      expect(countResolverMatch).toBeDefined();
+
+      const countResolver = countResolverMatch![0];
+      expect(countResolver).not.toContain('buildPrismaSelect');
+      expect(countResolver).not.toContain('prismaSelect');
+    });
+
+    it('should respect queries option to exclude count', async () => {
+      const options: GraphqlGeneratorOptions = {
+        queries: ['findFirst', 'findMany'],
+      };
+
+      const output = await generate(dmmf, options);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.typeDef).not.toContain('usersCount');
+      expect(userModel!.resolvers).not.toContain('usersCount:');
+    });
+
+    it('should respect queries option to only include count', async () => {
+      const options: GraphqlGeneratorOptions = {
+        queries: ['count'],
+      };
+
+      const output = await generate(dmmf, options);
+      const userModel = output.models.find(m => m.modelName === 'User');
+
+      expect(userModel!.typeDef).toContain('usersCount');
+      expect(userModel!.typeDef).not.toContain('user('); // findFirst
+      expect(userModel!.typeDef).not.toContain('users('); // findMany
+    });
+
+    it('should generate count for all models', async () => {
+      const output = await generate(dmmf);
+
+      output.models.forEach(model => {
+        const pluralModelName = model.modelName.toLowerCase() + 's';
+        expect(model.typeDef).toContain(`Count`);
+        expect(model.resolvers).toContain(`Count:`);
+      });
+    });
+  });
+
   describe('Regression Tests', () => {
     it('should not break existing field exclusion functionality', async () => {
       const options: GraphqlGeneratorOptions = {

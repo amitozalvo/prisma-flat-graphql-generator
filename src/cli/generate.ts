@@ -4,7 +4,7 @@ import { GenerateOutput, GraphqlGeneratorOptions, SingleModelOutput } from "./ty
 import { format } from "prettier";
 import { INPUT_TYPES_FILE_NAME, RESOLVERS_FILE_NAME, TYPE_DEFS_FILE_NAME } from "./constants.js";
 
-const allQueries = ["findFirst", "findMany"];
+const allQueries = ["findFirst", "findMany", "count"];
 type UsedTypes = Set<string>
 
 export default async function generate(dmmf: DMMF.Document, options?: GraphqlGeneratorOptions): Promise<GenerateOutput> {
@@ -280,6 +280,12 @@ function buildNestedSelect(selectionSet: any): any {
                     const prismaSelect = buildPrismaSelect(info, ${model.name.toUpperCase()}_FIELDS);
                     return context.prisma.${model.name}.findMany({ ...args, ...prismaSelect })
                 }`
+
+            case "count":
+                return `${pluralName(model.name)}Count: (_parent: any, args: any, context: any) => {
+                    return context.prisma.${model.name}.count({ where: args.where })
+                }`
+
             default:
                 throw new Error("Unknown query: " + query);
         }
@@ -297,13 +303,32 @@ async function getTypeDef(model: DMMF.Model, schema: DMMF.Schema, usedInputTypes
     const type = getType(schema.outputObjectTypes.model.find(m => m.name === model.name)!, options?.excludeOutputFields ?? [], usedInputTypes);
 
     const queriesTypeDefs = (options?.queries ?? allQueries).map(query => {
-        const inputArgs = getQueryInputArguments(model.name, query, schema, usedInputTypes);
         switch (query) {
-            case "findFirst":
+            case "findFirst": {
+                const inputArgs = getQueryInputArguments(model.name, query, schema, usedInputTypes);
                 return `${singularName(model.name)} (${inputArgs}): ${model.name} `
+            }
 
-            case "findMany":
+            case "findMany": {
+                const inputArgs = getQueryInputArguments(model.name, query, schema, usedInputTypes);
                 return `${pluralName(model.name)}(${inputArgs}): [${model.name}!]!`
+            }
+
+            case "count": {
+                // For count, only use 'where' argument
+                const whereArg = schema.outputObjectTypes.prisma
+                    .find((type) => type.name === "Query")
+                    ?.fields.find((field) => field.name === `findMany${model.name}`)
+                    ?.args.find((arg) => arg.name === 'where');
+
+                if (whereArg) {
+                    const whereType = getInputType(whereArg);
+                    usedInputTypes.add(whereType.type);
+                    return `${pluralName(model.name)}Count(where: ${whereType.type}): Int!`;
+                }
+                return `${pluralName(model.name)}Count: Int!`;
+            }
+
             default:
                 throw new Error("Unknown query: " + query);
         }
