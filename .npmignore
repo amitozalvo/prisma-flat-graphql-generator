@@ -10,5 +10,20 @@ jest.config.js
 docker-compose.db.yml
 .env
 
+# test and config files
+test/
+tests/
+vitest.config.ts
+tsconfig.json
+.nvmrc
+
+# claude and serena
+.claude/
+.serena/
+
+# proposals and internal docs
+COUNT_PROPOSAL.md
+CLAUDE.md
+
 # misc
 .DS_Store
